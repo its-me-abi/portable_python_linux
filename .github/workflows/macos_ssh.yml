@@ -4,18 +4,9 @@ on:
   workflow_dispatch:  # run manually from GitHub Actions tab
 
 jobs:
-  macos-terminal:
-    runs-on: macos-latest
+  build:
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install basic tools
-        run: |
-          brew install wget git python3
-          echo "Python version:"
-          python3 --version
-
-      - name: Start SSH session
-        uses: mxschmitt/action-tmate@v3
-
+    - uses: actions/checkout@v4
+    - name: Setup tmate session
+      uses: mxschmitt/action-tmate@v3
