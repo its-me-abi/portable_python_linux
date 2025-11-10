@@ -1,12 +1,35 @@
-name: Free macOS VM (Interactive SSH)
+name: Debug macOS runner
 
 on:
-  workflow_dispatch:  # run manually from GitHub Actions tab
+  workflow_dispatch:
+    inputs:
+      debug_enabled:
+        description: 'Enable tmate debugging (web shell / SSH)'
+        required: false
+        default: 'false'
 
 jobs:
-  build:
+  debug:
     runs-on: macos-latest
     steps:
-    - uses: actions/checkout@v4
-    - name: Setup tmate session
-      uses: mxschmitt/action-tmate@v3
+      - uses: actions/checkout@v4
+
+      # Only enable tmate when manually requested
+      - name: Setup tmate session
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.debug_enabled == 'true' }}
+        id: tmate
+        uses: mxschmitt/action-tmate@v3
+        with:
+          detached: true    # prints connection info and continues, final step waits for session to end
+
+      # Example: output the web URL and ssh command captured from the action
+      - name: Show connection info
+        if: ${{ steps.tmate.outcomes == 'success' }}
+        run: |
+          echo "WEB URL: ${{ steps.tmate.outputs.web-url }}"
+          echo "SSH command: ${{ steps.tmate.outputs.ssh-command }}"
+
+      # (Optional) keep the job busy so you can debug longer if needed
+      - name: Sleep while debugging
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.debug_enabled == 'true' }}
+        run: sleep 300  # keep runner alive for 5 minutes (action also manages waiting)
