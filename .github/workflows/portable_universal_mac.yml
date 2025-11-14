@@ -123,7 +123,9 @@ jobs:
           tag_name: v${{ github.event.inputs.python_version }}
           name: "Portable Python ${{ github.event.inputs.python_version }}"
           body: |
-            This release contains a portable build of Python ${{ github.event.inputs.python_version }} for macOS.
-          files: python-${PY_VERSION}-macos-universal2.tar.gz
+            Portable Python built as a macOS universal2 binary.
+            Supports both Intel (x86_64) and Apple Silicon (arm64).
+          files: python-${{ github.event.inputs.python_version }}-macos-universal2.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
