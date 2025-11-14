@@ -22,13 +22,13 @@ jobs:
       - name: Install dependencies
         run: |
           brew update
-          brew install openssl readline zlib bzip2 sqlite xz gdbm tcl-tk certifi
+          brew install openssl@3 ca-certificates readline zlib bzip2 sqlite xz gdbm tcl-tk
 
       - name: Download Python source
         run: |
           curl -LO "https://www.python.org/ftp/python/${PY_VERSION}/Python-${PY_VERSION}.tgz"
-          tar -xzf Python-${PY_VERSION}.tgz
-          mv Python-${PY_VERSION} python-src
+          tar -xzf "Python-${PY_VERSION}.tgz"
+          mv "Python-${PY_VERSION}" python-src
 
       ####################################################
       #                ARM64 BUILD
@@ -39,19 +39,23 @@ jobs:
           mkdir build-arm64
           cd build-arm64
 
-          export CFLAGS="-arch arm64"
-          export LDFLAGS="-arch arm64"
+          OPENSSL_PREFIX="$(brew --prefix openssl@3)"
+
+          export CFLAGS="-arch arm64 -I$OPENSSL_PREFIX/include"
+          export CPPFLAGS="-I$OPENSSL_PREFIX/include"
+          export LDFLAGS="-arch arm64 -L$OPENSSL_PREFIX/lib"
           export MACOSX_DEPLOYMENT_TARGET=11.0
 
           ../configure \
             --prefix=$PWD/install \
             --enable-optimizations \
-            --with-openssl=$(brew --prefix openssl)
+            --with-openssl="$OPENSSL_PREFIX" \
+            --with-openssl-rpath=auto
 
       - name: Build arm64
         working-directory: python-src/build-arm64
         run: |
-          make -j$(sysctl -n hw.ncpu)
+          make -j"$(sysctl -n hw.ncpu)"
           make install
 
       ####################################################
@@ -63,19 +67,23 @@ jobs:
           mkdir build-x86_64
           cd build-x86_64
 
-          export CFLAGS="-arch x86_64"
-          export LDFLAGS="-arch x86_64"
+          OPENSSL_PREFIX="$(brew --prefix openssl@3)"
+
+          export CFLAGS="-arch x86_64 -I$OPENSSL_PREFIX/include"
+          export CPPFLAGS="-I$OPENSSL_PREFIX/include"
+          export LDFLAGS="-arch x86_64 -L$OPENSSL_PREFIX/lib"
           export MACOSX_DEPLOYMENT_TARGET=10.9
 
           ../configure \
             --prefix=$PWD/install \
             --enable-optimizations \
-            --with-openssl=$(brew --prefix openssl)
+            --with-openssl="$OPENSSL_PREFIX" \
+            --with-openssl-rpath=auto
 
       - name: Build x86_64
         working-directory: python-src/build-x86_64
         run: |
-          make -j$(sysctl -n hw.ncpu)
+          make -j"$(sysctl -n hw.ncpu)"
           make install
 
       ####################################################
@@ -101,33 +109,45 @@ jobs:
           done
 
       ####################################################
-      #        Add Certificate Bundle (Fix SSL/PIP)
-      ####################################################
-      - name: Add SSL certificates
-        working-directory: python-src/universal2
-        run: |
-          CERT_SRC="$(brew --prefix openssl)/etc/openssl/cert.pem"
-          mkdir -p ./ssl
-          cp "$CERT_SRC" ./ssl/cert.pem
-
-          echo "export SSL_CERT_FILE=$(pwd)/ssl/cert.pem" >> ./bin/activate
-          echo "export SSL_CERT_FILE=$(pwd)/ssl/cert.pem" >> ./bin/python3-config-env
-
-          # Ensure Python loads cert automatically
-          echo "import os; os.environ['SSL_CERT_FILE'] = r'$(pwd)/ssl/cert.pem'" \
-            > ./lib/python3*/site-packages/_ssl_config.py
-
-          # Inject auto-loader
-          echo "import _ssl_config" >> ./lib/python3*/site.py
-
-      ####################################################
       #              Install pip in Universal2
       ####################################################
       - name: Bootstrap pip into Universal2 Python
         working-directory: python-src/universal2
         run: |
           ./bin/python3 -m ensurepip --default-pip || true
-          ./bin/python3 -m pip install --upgrade pip setuptools wheel certifi
+          ./bin/python3 -m pip install --upgrade pip setuptools wheel
+
+      ####################################################
+      #       Add SSL Certificate Bundle (Fix HTTPS)
+      ####################################################
+      - name: Add SSL certificates
+        working-directory: python-src/universal2
+        run: |
+          CERT_SRC="$(brew --prefix ca-certificates)/etc/ca-certificates/cert.pem"
+
+          echo "Using certificate: $CERT_SRC"
+
+          if [[ ! -f "$CERT_SRC" ]]; then
+            echo "CA certificate bundle not found!"
+            ls -R "$(brew --prefix ca-certificates)/etc"
+            exit 1
+          fi
+
+          mkdir -p ./ssl
+          cp "$CERT_SRC" ./ssl/cert.pem
+
+          echo "export SSL_CERT_FILE=$(pwd)/ssl/cert.pem" >> ./bin/activate
+
+          # Automatically load it in Python
+          PYVER=$(./bin/python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+          SITEPKG="./lib/python${PYVER}/site-packages"
+
+          mkdir -p "$SITEPKG"
+
+          echo "import os; os.environ.setdefault('SSL_CERT_FILE', r'$(pwd)/ssl/cert.pem')" \
+            > "$SITEPKG/_cert_fix.py"
+
+          echo "import _cert_fix" >> "$SITEPKG/sitecustomize.py"
 
       ####################################################
       #                PACKAGE RESULT
@@ -138,7 +158,7 @@ jobs:
           tar -czf python-${PY_VERSION}-macos-universal2.tar.gz universal2
 
       - name: Move archive to workspace root
-        run: mv python-src/python-${PY_VERSION}-macos-universal2.tar.gz .
+        run: mv "python-src/python-${PY_VERSION}-macos-universal2.tar.gz" .
 
       ####################################################
       #            PUBLISH RELEASE
@@ -151,7 +171,7 @@ jobs:
           body: |
             Portable Python built as a macOS universal2 binary.
             Supports both Intel (x86_64) and Apple Silicon (arm64).
-            Includes SSL certificates so pip works with HTTPS.
+            HTTPS & pip fully working with system SSL certificates.
           files: python-${{ github.event.inputs.python_version }}-macos-universal2.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
