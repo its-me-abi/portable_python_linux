@@ -1,4 +1,4 @@
-name: Build Universal2 Portable Python for macOS
+name: portable universal macos python
 
 on:
   workflow_dispatch:
