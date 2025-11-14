@@ -1,0 +1,143 @@
+name: Build Universal2 Portable Python for macOS
+
+on:
+  workflow_dispatch:
+    inputs:
+      python_version:
+        description: "Python version (example: 3.12.6)"
+        required: true
+        default: "3.12.6"
+
+jobs:
+  build-universal-python:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set Python version
+        run: echo "PY_VERSION=${{ github.event.inputs.python_version }}" >> $GITHUB_ENV
+
+      - name: Install dependencies
+        run: |
+          brew update
+          brew install openssl readline zlib bzip2 sqlite xz gdbm tcl-tk
+
+      - name: Download Python source
+        run: |
+          curl -LO "https://www.python.org/ftp/python/${PY_VERSION}/Python-${PY_VERSION}.tgz"
+          tar -xzf Python-${PY_VERSION}.tgz
+          mv Python-${PY_VERSION} python-src
+
+      ####################################################
+      #                ARM64 BUILD
+      ####################################################
+      - name: Configure arm64
+        working-directory: python-src
+        run: |
+          mkdir build-arm64
+          cd build-arm64
+
+          export CFLAGS="-arch arm64"
+          export LDFLAGS="-arch arm64"
+          export MACOSX_DEPLOYMENT_TARGET=11.0
+
+          ../configure \
+            --prefix=$PWD/install \
+            --enable-optimizations \
+            --with-openssl=$(brew --prefix openssl)
+
+      - name: Build arm64
+        working-directory: python-src/build-arm64
+        run: |
+          make -j$(sysctl -n hw.ncpu)
+          make install
+
+      ####################################################
+      #                X86_64 BUILD
+      ####################################################
+      - name: Configure x86_64
+        working-directory: python-src
+        run: |
+          mkdir build-x86_64
+          cd build-x86_64
+
+          export CFLAGS="-arch x86_64"
+          export LDFLAGS="-arch x86_64"
+          export MACOSX_DEPLOYMENT_TARGET=10.9
+
+          ../configure \
+            --prefix=$PWD/install \
+            --enable-optimizations \
+            --with-openssl=$(brew --prefix openssl)
+
+      - name: Build x86_64
+        working-directory: python-src/build-x86_64
+        run: |
+          make -j$(sysctl -n hw.ncpu)
+          make install
+
+      ####################################################
+      #         Create Universal2 Python Binary
+      ####################################################
+      - name: Merge universal2 binaries
+        working-directory: python-src
+        run: |
+          mkdir universal2
+          cp -R build-arm64/install/ universal2/
+
+          for f in $(find build-arm64/install -type f); do
+            rel="${f#build-arm64/install/}"
+            f_arm="build-arm64/install/$rel"
+            f_x86="build-x86_64/install/$rel"
+            f_out="universal2/$rel"
+
+            if [ -f "$f_x86" ]; then
+              if file "$f_arm" | grep -q "Mach-O"; then
+                lipo -create "$f_arm" "$f_x86" -output "$f_out"
+              fi
+            fi
+          done
+
+      ####################################################
+      #              Install pip in Universal2
+      ####################################################
+      - name: Bootstrap pip into Universal2 Python
+        working-directory: python-src/universal2
+        run: |
+          ./bin/python3 -m ensurepip --default-pip || true
+          ./bin/python3 -m pip install --upgrade pip setuptools wheel
+
+      ####################################################
+      #                PACKAGE RESULT
+      ####################################################
+      - name: Package Universal2 Python
+        working-directory: python-src
+        run: |
+          tar -czf python-${PY_VERSION}-macos-universal2.tar.gz universal2
+
+      ####################################################
+      #                CREATE RELEASE
+      ####################################################
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v${{ env.PY_VERSION }}"
+          name: "Python ${{ env.PY_VERSION }} (macOS Universal2)"
+          prerelease: false
+          draft: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      ####################################################
+      #                UPLOAD ASSET
+      ####################################################
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v${{ env.PY_VERSION }}"
+          files: |
+            python-src/python-${PY_VERSION}-macos-universal2.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
