@@ -117,27 +117,13 @@ jobs:
         run: |
           tar -czf python-${PY_VERSION}-macos-universal2.tar.gz universal2
 
-      ####################################################
-      #                CREATE RELEASE
-      ####################################################
-      - name: Create GitHub Release
+      - name: Create or update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: "v${{ env.PY_VERSION }}"
-          name: "Python ${{ env.PY_VERSION }} (macOS Universal2)"
-          prerelease: false
-          draft: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      ####################################################
-      #                UPLOAD ASSET
-      ####################################################
-      - name: Upload Release Asset
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: "v${{ env.PY_VERSION }}"
-          files: |
-            python-src/python-${PY_VERSION}-macos-universal2.tar.gz
+          tag_name: v${{ github.event.inputs.python_version }}
+          name: "Portable Python ${{ github.event.inputs.python_version }}"
+          body: |
+            This release contains a portable build of Python ${{ github.event.inputs.python_version }} for macOS.
+          files: python-${PY_VERSION}-macos-universal2.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
