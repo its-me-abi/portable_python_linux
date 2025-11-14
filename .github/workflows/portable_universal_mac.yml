@@ -84,16 +84,16 @@ jobs:
       - name: Merge universal2 binaries
         working-directory: python-src
         run: |
-          mkdir universal2
+          mkdir -p universal2
           cp -R build-arm64/install/ universal2/
 
-          for f in $(find build-arm64/install -type f); do
+          find build-arm64/install -type f | while read f; do
             rel="${f#build-arm64/install/}"
             f_arm="build-arm64/install/$rel"
             f_x86="build-x86_64/install/$rel"
             f_out="universal2/$rel"
 
-            if [ -f "$f_x86" ]; then
+            if [[ -f "$f_x86" ]]; then
               if file "$f_arm" | grep -q "Mach-O"; then
                 lipo -create "$f_arm" "$f_x86" -output "$f_out"
               fi
@@ -115,10 +115,14 @@ jobs:
       - name: Package Universal2 Python
         working-directory: python-src
         run: |
-          tar -czf python-${{ github.event.inputs.python_version }}-macos-universal2.tar.gz universal2
-      - name: Move archive to workspace root
-        run: mv python-src/python-${{ github.event.inputs.python_version }}-macos-universal2.tar.gz .
+          tar -czf python-${PY_VERSION}-macos-universal2.tar.gz universal2
 
+      - name: Move archive to workspace root
+        run: mv python-src/python-${PY_VERSION}-macos-universal2.tar.gz .
+
+      ####################################################
+      #            PUBLISH RELEASE
+      ####################################################
       - name: Create or update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -130,4 +134,3 @@ jobs:
           files: python-${{ github.event.inputs.python_version }}-macos-universal2.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
